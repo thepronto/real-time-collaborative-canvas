@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canavs</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <!-- Color Palette -->
+      <div id="palette">
+        <button class="color-btn" data-color="red" style="background:red"></button>
+        <button class="color-btn" data-color="orange" style="background:orange"></button>
+        <button class="color-btn" data-color="yellow" style="background:yellow"></button>
+        <button class="color-btn" data-color="green" style="background:green"></button>
+        <button class="color-btn" data-color="blue" style="background:blue"></button>
+        <button class="color-btn" data-color="purple" style="background:purple"></button>
+        <button class="color-btn" data-color="brown" style="background:brown"></button>
+        <button class="color-btn" data-color="black" style="background:black"></button>
+      </div>
+
+      <!-- Custom Color Picker -->
+      <div id="picker-wrap">
+        <input id="colorPicker" type="color" value="#000000" aria-label="custom color picker">
+      </div>
+
+      
+
+      <!-- Tools -->
+      <div id="tools">
+        <button id="tool-brush" class="tool-btn active" title="Brush">✏️</button>
+        <button id="tool-eraser" class="tool-btn" title="Eraser">🧽</button>
+      </div>
+
+      <!-- Size Slider -->
+      <div id="size-wrap">
+        <label for="sizeRange">Size</label>
+        <input id="sizeRange" type="range" min="1" max="80" value="6">
+      </div>
+      
+      <!-- Action Buttons -->
+      <div id="actions">
+        <button id="undoBtn">Undo</button>
+        <button id="redoBtn">Redo</button>
+        <button id="clearBtn">Clear</button>
+      </div>
+
+      
+    </aside>
+
+    <main id="stage">
+      <canvas id="canvas1"></canvas>
+    </main>
+  </div>
+
+  <script src="canvas.js"></script>
+</body>
+
+</html>
