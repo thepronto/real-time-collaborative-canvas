@@ -42,7 +42,7 @@ window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 function saveSnapshotAndEmit() {
-  const image = canvas.toDataURL('imagepng');  //Base64 encoded snapshot
+  const image = canvas.toDataURL('image/png');  //Base64 encoded snapshot
   socket.emit('snapshot', { image });
 }
 
