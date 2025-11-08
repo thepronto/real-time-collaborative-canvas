@@ -1,6 +1,13 @@
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
 
+const cursorCanvas = document.createElement('canvas');//for cursors
+const cursorCtx = cursorCanvas.getContext('2d');
+
+canvas.parentElement.appendChild(cursorCanvas);
+const cursors = {};
+
+
 let drawing = false;
 let tool = 'brush';
 let currentColor = 'black';
@@ -13,14 +20,24 @@ let index = -1;
 
 const socket = io();
 
-
 // Resize Canvas
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const pixelWidth = Math.round(rect.width * dpr);
+  const pixelHeight = Math.round(rect.height * dpr);
+
+  [canvas, cursorCanvas].forEach((c, i) => {
+    c.style.width = rect.width + 'px';
+    c.style.height = rect.height + 'px';
+    c.width = pixelWidth;
+    c.height = pixelHeight;
+
+    const context = i === 0 ? ctx : cursorCtx;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  });
+
   restoreSnapshot();
 }
 
@@ -70,8 +87,10 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  if (!drawing) return;
   const p = getPos(e);
+  socket.emit('cursor', p);
+  if (!drawing) return;
+
   drawLine(p.x, p.y, currentColor, lineWidth, tool);
   socket.emit('draw', {
     type: 'draw',
@@ -202,4 +221,24 @@ socket.on('clear', () => {
   index = -1;
 });
 
-
+socket.on('cursor', (data) => {
+  cursors[data.id] = { x: data.x, y: data.y, color: data.color };
+  drawCursors();
+});
+socket.on('removeCursor', (id) => {
+  delete cursors[id];
+  drawCursors();
+});
+function drawCursors() {
+  cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+  for (const id in cursors) {
+    const { x, y, color } = cursors[id];
+    cursorCtx.beginPath();
+    cursorCtx.arc(x, y, 5, 0, Math.PI * 2);
+    cursorCtx.fillStyle = color;
+    cursorCtx.fill();
+    cursorCtx.lineWidth = 1.5;
+    cursorCtx.strokeStyle = 'white';
+    cursorCtx.stroke();
+  }
+}
