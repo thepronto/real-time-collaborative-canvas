@@ -7,7 +7,9 @@ let currentColor = 'black';
 let lastPenColor = 'black';
 let lineWidth = 6;
 
-
+// Snapshots
+let history = [];
+let index = -1;
 
 
 
@@ -19,10 +21,29 @@ function resizeCanvas() {
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  restoreSnapshot();
 }
 
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
+
+function saveSnapshot() {
+  // Trim redo states if we draw after undo
+  history = history.slice(0, index + 1);
+  const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  history.push(snapshot);
+  index = history.length - 1;
+}
+
+// Restore a specific snapshot
+function restoreSnapshot() {
+  if (index >= 0 && history[index]) {
+    ctx.putImageData(history[index], 0, 0);
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
 
 // Get pointer position
 function getPos(e) {
@@ -42,6 +63,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drawing) return;
   const p = getPos(e);
   ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round"; // for smoothly joining points, instead of ragged/choppy lines and dots
+  ctx.lineJoin = "round";
 
   if (tool === 'eraser') {
     ctx.globalCompositeOperation = 'destination-out';
@@ -56,8 +79,10 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 window.addEventListener('pointerup', () => {
+  if (!drawing) return;
   drawing = false;
   ctx.closePath();
+  saveSnapshot();
 });
 
 
@@ -113,4 +138,22 @@ document.getElementById('sizeRange').addEventListener('input', (e) => {
 
 document.getElementById('clearBtn').onclick = () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  history = [];
+  index = -1;
+};
+
+
+document.getElementById('undoBtn').onclick = () => {
+  if (index >= 0) {
+    index--;
+    restoreSnapshot();
+  }
+};
+
+// Redo
+document.getElementById('redoBtn').onclick = () => {
+  if (index < history.length - 1) {
+    index++;
+    restoreSnapshot();
+  }
 };
