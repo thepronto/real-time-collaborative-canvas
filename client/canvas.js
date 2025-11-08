@@ -13,6 +13,7 @@ let tool = 'brush';
 let currentColor = 'black';
 let lastPenColor = 'black';
 let lineWidth = 6;
+let rect;
 
 // Snapshots
 let history = [];
@@ -22,7 +23,7 @@ const socket = io();
 
 // Resize Canvas
 function resizeCanvas() {
-  const rect = canvas.getBoundingClientRect();
+  rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
 
   const pixelWidth = Math.round(rect.width * dpr);
@@ -64,7 +65,6 @@ function restoreSnapshot() {
 
 // Get pointer position
 function getPos(e) {
-  const rect = canvas.getBoundingClientRect();
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
@@ -80,8 +80,7 @@ canvas.addEventListener('pointerdown', (e) => {
     x: p.x,
     y: p.y,
     color: currentColor,
-    width: lineWidth,
-    tool
+    width: lineWidth
   });
 
 });
@@ -91,31 +90,23 @@ canvas.addEventListener('pointermove', (e) => {
   socket.emit('cursor', p);
   if (!drawing) return;
 
-  drawLine(p.x, p.y, currentColor, lineWidth, tool);
+  drawLine(p.x, p.y, currentColor, lineWidth);
   socket.emit('draw', {
     type: 'draw',
     x: p.x,
     y: p.y,
     color: currentColor,
-    width: lineWidth,
-    tool
+    width: lineWidth
   });
 });
 
 
-function drawLine(x,y,color,width,toolType){
+function drawLine(x,y,color,width){
   ctx.lineWidth = width;
+  ctx.strokeStyle = color;
   ctx.lineCap = "round"; // for smoothly joining points, instead of ragged/choppy lines and dots
   ctx.lineJoin = "round";
-
-  if (tool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = 'white';
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = color;
-  }
-
+  
   ctx.lineTo(x,y);
   ctx.stroke();
 }
@@ -127,9 +118,6 @@ window.addEventListener('pointerup', () => {
   saveSnapshot();
   socket.emit('draw', { type: 'end' });
 });
-
-
-
 
 
 
@@ -155,23 +143,25 @@ colorPicker.addEventListener('input', (e) => {
   lastPenColor = currentColor;
 });
 
-// Tool Switching
+const brushBtn = document.getElementById('tool-brush');
+const eraserBtn = document.getElementById('tool-eraser');
+
 function switchToBrush() {
   tool = 'brush';
-  document.getElementById('tool-brush').classList.add('active');
-  document.getElementById('tool-eraser').classList.remove('active');
+  brushBtn.classList.add('active');
+  eraserBtn.classList.remove('active');
   currentColor = lastPenColor;
 }
 
 function switchToEraser() {
   tool = 'eraser';
-  document.getElementById('tool-eraser').classList.add('active');
-  document.getElementById('tool-brush').classList.remove('active');
+  eraserBtn.classList.add('active');
+  brushBtn.classList.remove('active');
   currentColor = 'white';
 }
 
-document.getElementById('tool-brush').onclick = switchToBrush;
-document.getElementById('tool-eraser').onclick = switchToEraser;
+brushBtn.onclick = switchToBrush;
+eraserBtn.onclick = switchToEraser;
 
 // Size Slider
 document.getElementById('sizeRange').addEventListener('input', (e) => {
@@ -209,7 +199,7 @@ socket.on('draw', (data) => {
     ctx.beginPath();
     ctx.moveTo(data.x, data.y);
   } else if (data.type === 'draw') {
-    drawLine(data.x, data.y, data.color, data.width, data.tool);
+    drawLine(data.x, data.y, data.color, data.width);
   } else if (data.type === 'end') {
     ctx.closePath();
   }
