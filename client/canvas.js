@@ -11,7 +11,7 @@ let lineWidth = 6;
 let history = [];
 let index = -1;
 
-
+const socket = io();
 
 
 // Resize Canvas
