@@ -57,12 +57,35 @@ canvas.addEventListener('pointerdown', (e) => {
   const p = getPos(e);
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
+
+  socket.emit('draw', {
+    type: 'begin',
+    x: p.x,
+    y: p.y,
+    color: currentColor,
+    width: lineWidth,
+    tool
+  });
+
 });
 
 canvas.addEventListener('pointermove', (e) => {
   if (!drawing) return;
   const p = getPos(e);
-  ctx.lineWidth = lineWidth;
+  drawLine(p.x, p.y, currentColor, lineWidth, tool);
+  socket.emit('draw', {
+    type: 'draw',
+    x: p.x,
+    y: p.y,
+    color: currentColor,
+    width: lineWidth,
+    tool
+  });
+});
+
+
+function drawLine(x,y,color,width,toolType){
+  ctx.lineWidth = width;
   ctx.lineCap = "round"; // for smoothly joining points, instead of ragged/choppy lines and dots
   ctx.lineJoin = "round";
 
@@ -71,18 +94,19 @@ canvas.addEventListener('pointermove', (e) => {
     ctx.strokeStyle = 'white';
   } else {
     ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = currentColor;
+    ctx.strokeStyle = color;
   }
 
-  ctx.lineTo(p.x, p.y);
+  ctx.lineTo(x,y);
   ctx.stroke();
-});
+}
 
 window.addEventListener('pointerup', () => {
   if (!drawing) return;
   drawing = false;
   ctx.closePath();
   saveSnapshot();
+  socket.emit('draw', { type: 'end' });
 });
 
 
@@ -140,6 +164,7 @@ document.getElementById('clearBtn').onclick = () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   history = [];
   index = -1;
+  socket.emit('clear');
 };
 
 
@@ -157,3 +182,24 @@ document.getElementById('redoBtn').onclick = () => {
     restoreSnapshot();
   }
 };
+
+
+
+socket.on('draw', (data) => {
+  if (data.type === 'begin') {
+    ctx.beginPath();
+    ctx.moveTo(data.x, data.y);
+  } else if (data.type === 'draw') {
+    drawLine(data.x, data.y, data.color, data.width, data.tool);
+  } else if (data.type === 'end') {
+    ctx.closePath();
+  }
+});
+
+socket.on('clear', () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  history = [];
+  index = -1;
+});
+
+

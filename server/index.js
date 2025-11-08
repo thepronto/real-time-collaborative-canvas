@@ -12,6 +12,16 @@ io.on('connect', (socket) =>{
   connections.push(socket);
   console.log(`${socket.id} has connected`);
 
+  socket.on('draw', (data) => {
+    // broadcast to everyone except sender
+    socket.broadcast.emit('draw', data);
+  });
+
+  socket.on('clear', () => {
+    socket.broadcast.emit('clear');
+  });
+  
+  
   socket.on('disconnect', (reason)=>{
     console.log(`${socket.id} has disconnected`)
     connections = connections.filter((connection) => connection.id !==socket.id);
