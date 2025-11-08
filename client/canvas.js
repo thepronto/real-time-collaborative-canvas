@@ -15,9 +15,6 @@ let lastPenColor = 'black';
 let lineWidth = 6;
 let rect;
 
-// Snapshots
-let history = [];
-let index = -1;
 
 const socket = io();
 
@@ -39,36 +36,21 @@ function resizeCanvas() {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   });
 
-  restoreSnapshot();
 }
 
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-function saveSnapshot() {
-  // Trim redo states if we draw after undo
-  history = history.slice(0, index + 1);
-  const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  history.push(snapshot);
-  index = history.length - 1;
+function saveSnapshotAndEmit() {
+  const image = canvas.toDataURL('imagepng');  //Base64 encoded snapshot
+  socket.emit('snapshot', { image });
 }
-
-// Restore a specific snapshot
-function restoreSnapshot() {
-  if (index >= 0 && history[index]) {
-    ctx.putImageData(history[index], 0, 0);
-  } else {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
-}
-
 
 // Get pointer position
 function getPos(e) {
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
-// Drawing Events
 canvas.addEventListener('pointerdown', (e) => {
   drawing = true;
   const p = getPos(e);
@@ -100,7 +82,6 @@ canvas.addEventListener('pointermove', (e) => {
   });
 });
 
-
 function drawLine(x,y,color,width){
   ctx.lineWidth = width;
   ctx.strokeStyle = color;
@@ -115,12 +96,9 @@ window.addEventListener('pointerup', () => {
   if (!drawing) return;
   drawing = false;
   ctx.closePath();
-  saveSnapshot();
   socket.emit('draw', { type: 'end' });
+  saveSnapshotAndEmit(); // send to server
 });
-
-
-
 
 // Color Buttons
 const colorButtons = document.querySelectorAll('.color-btn');
@@ -171,28 +149,17 @@ document.getElementById('sizeRange').addEventListener('input', (e) => {
 
 document.getElementById('clearBtn').onclick = () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  history = [];
-  index = -1;
   socket.emit('clear');
+  saveSnapshotAndEmit();
 };
-
 
 document.getElementById('undoBtn').onclick = () => {
-  if (index >= 0) {
-    index--;
-    restoreSnapshot();
-  }
+  socket.emit('undo');
 };
 
-// Redo
 document.getElementById('redoBtn').onclick = () => {
-  if (index < history.length - 1) {
-    index++;
-    restoreSnapshot();
-  }
+  socket.emit('redo');
 };
-
-
 
 socket.on('draw', (data) => {
   if (data.type === 'begin') {
@@ -207,8 +174,6 @@ socket.on('draw', (data) => {
 
 socket.on('clear', () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  history = [];
-  index = -1;
 });
 
 socket.on('cursor', (data) => {
@@ -232,3 +197,11 @@ function drawCursors() {
     cursorCtx.stroke();
   }
 }
+socket.on('snapshot', (data) => {
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = data.image;
+});
