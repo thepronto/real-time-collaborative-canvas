@@ -2,10 +2,11 @@
   "name": "server",
   "version": "1.0.0",
   "description": "Server for handling multiple users on canvas",
+  "scripts": {
+    "build": "npm install --prefix server",
+    "start": "node server/server.js"
+  },
   "author": "Sriharinadha Savaram",
   "license": "ISC",
-  "dependencies": {
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1"
-  }
+  "dependencies": {}
 }

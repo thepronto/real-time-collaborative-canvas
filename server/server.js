@@ -70,7 +70,7 @@ io.on('connect', (socket) =>{
 
 
 
-const clientPath = path.join(__dirname, '..', 'client');
+const clientPath = path.join(__dirname, '..' , 'client');
 app.use(express.static(clientPath));
 
 httpServer.listen(PORT, ()=>{
