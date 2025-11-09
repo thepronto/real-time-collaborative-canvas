@@ -50,7 +50,7 @@ You can try the live version right here:
 
 👉 Open Collaborative Canvas on Render
 
-[(replace this link with your actual Render URL)](https://real-time-collaborative-canvas.onrender.com/)
+[(Link)](https://real-time-collaborative-canvas.onrender.com/)
 
 🧑‍🤝‍🧑 Testing Multi-User Collaboration on Render
 
@@ -87,6 +87,10 @@ You can try the live version right here:
 Roughly **2½ to 3 days**
 
 ---
+## **Bonus Features**
+- Mobile touch support for drawing
+- Drawing persistence (save/load sessions)
+- Performance metrics (FPS counter, latency display)
 
 ## 🪄 Notes
 
