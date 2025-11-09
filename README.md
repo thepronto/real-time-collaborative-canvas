@@ -10,6 +10,7 @@ Each user gets their own interactive layer, while a shared master canvas keeps e
 1. Clone this repository  
    ```bash
    git clone https://github.com/thepronto/real-time-collaborative-canvas
+   cd real-time-collaborative-canvas
    ```
 
 2. Install dependencies  
