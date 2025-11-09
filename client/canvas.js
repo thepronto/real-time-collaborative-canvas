@@ -20,12 +20,16 @@ const socket = io();
 
 // Resize Canvas
 function resizeCanvas() {
+  // Save current visible drawing before resizing
+  const tempImage = canvas.toDataURL('image/png');
+
+  // Compute new DPR-aware dimensions
   rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-
   const pixelWidth = Math.round(rect.width * dpr);
   const pixelHeight = Math.round(rect.height * dpr);
 
+  // Resize both canvases
   [canvas, cursorCanvas].forEach((c, i) => {
     c.style.width = rect.width + 'px';
     c.style.height = rect.height + 'px';
@@ -36,15 +40,34 @@ function resizeCanvas() {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   });
 
+  // Redraw saved content (only if there was something)
+  const img = new Image();
+  img.onload = () => {
+    // Reset transform temporarily to avoid double scaling
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // Reapply DPR transform for future drawing
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+  img.src = tempImage;
 }
 
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 function saveSnapshotAndEmit() {
-  const image = canvas.toDataURL('image/png');  //Base64 encoded snapshot
+  // Temporarily reset transform so toDataURL() captures the actual canvas content
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const image = canvas.toDataURL('image/png');
+  
+  // Reapply the correct DPR scaling (so future drawing works as before)
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   socket.emit('snapshot', { image });
 }
+
 
 // Get pointer position
 function getPos(e) {
@@ -200,8 +223,14 @@ function drawCursors() {
 socket.on('snapshot', (data) => {
   const img = new Image();
   img.onload = () => {
+    // Reset transform temporarily to draw 1:1
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // Reapply the DPR scaling for future strokes
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   img.src = data.image;
 });
