@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 let express = require('express')
 let app = express()
 let httpServer = require('http').createServer(app)
@@ -9,6 +10,20 @@ let PORT = process.env.PORT || 5050 //for heroku deployment
 let users = {};
 let history = []; 
 let index = -1;
+const SNAPSHOT_PATH = path.join(__dirname, 'latest_snapshot.txt');
+
+if (fs.existsSync(SNAPSHOT_PATH)) {
+  try {
+    const saved = fs.readFileSync(SNAPSHOT_PATH, 'utf8');
+    history = [saved];
+    index = 0;
+    console.log('Restored saved drawing snapshot.');
+  } catch (err) {
+    console.error('Failed to load snapshot:', err);
+  }
+} else {
+  console.log(' No previous snapshot found, starting fresh.');
+}
 
 io.on('connect', (socket) =>{
   const color = `hsl(${Math.random() * 360}, 80%, 60%)`;
@@ -48,7 +63,6 @@ io.on('connect', (socket) =>{
     }
   });
 
-
   socket.on('clear', () => {
     socket.broadcast.emit('clear');
   });
@@ -62,17 +76,27 @@ io.on('connect', (socket) =>{
     });
   });
   
-  
   socket.on('disconnect', (reason)=>{
     console.log(`${socket.id} disconnected`);
     delete users[socket.id];
     io.emit('users', users);
     io.emit('removeCursor', socket.id);
+
+    if (Object.keys(users).length === 0 && index >= 0) {
+      try {
+        fs.writeFileSync(SNAPSHOT_PATH, history[index], 'utf8');
+        console.log(' Saved drawing snapshot (on last user disconnect).');
+      } catch (err) {
+        console.error(' Failed to save snapshot:', err);
+      }
+    }
   });
+
+
   socket.on('pingCheck', () => socket.emit('pongCheck'));
+
+
 })
-
-
 
 const clientPath = path.join(__dirname, '..' , 'client');
 app.use(express.static(clientPath));
