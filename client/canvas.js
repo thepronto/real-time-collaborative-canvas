@@ -84,8 +84,10 @@ function toLocalCoords(norm) {
     y: norm.y * rect.height,
   };
 }
+canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
 canvas.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
   drawing = true;
   const norm = getNormalizedPos(e);
   const p = toLocalCoords(norm);
@@ -101,6 +103,7 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  e.preventDefault();
   const norm = getNormalizedPos(e);
   socket.emit('cursor', norm);
   if (!drawing) return;
