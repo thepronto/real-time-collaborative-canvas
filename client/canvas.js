@@ -69,37 +69,47 @@ function saveSnapshotAndEmit() {
 }
 
 
-// Get pointer position
-function getPos(e) {
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+function getNormalizedPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) / rect.width,
+    y: (e.clientY - rect.top) / rect.height,
+  };
+}
+
+function toLocalCoords(norm) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: norm.x * rect.width,
+    y: norm.y * rect.height,
+  };
 }
 
 canvas.addEventListener('pointerdown', (e) => {
   drawing = true;
-  const p = getPos(e);
+  const norm = getNormalizedPos(e);
+  const p = toLocalCoords(norm);
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
 
   socket.emit('draw', {
     type: 'begin',
-    x: p.x,
-    y: p.y,
+    ...norm,
     color: currentColor,
     width: lineWidth
   });
-
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  const p = getPos(e);
-  socket.emit('cursor', p);
+  const norm = getNormalizedPos(e);
+  socket.emit('cursor', norm);
   if (!drawing) return;
 
+  const p = toLocalCoords(norm);
   drawLine(p.x, p.y, currentColor, lineWidth);
   socket.emit('draw', {
     type: 'draw',
-    x: p.x,
-    y: p.y,
+    ...norm,
     color: currentColor,
     width: lineWidth
   });
@@ -185,11 +195,12 @@ document.getElementById('redoBtn').onclick = () => {
 };
 
 socket.on('draw', (data) => {
+  const p = toLocalCoords(data);
   if (data.type === 'begin') {
     ctx.beginPath();
-    ctx.moveTo(data.x, data.y);
+    ctx.moveTo(p.x, p.y);
   } else if (data.type === 'draw') {
-    drawLine(data.x, data.y, data.color, data.width);
+    drawLine(p.x, p.y, data.color, data.width);
   } else if (data.type === 'end') {
     ctx.closePath();
   }
@@ -200,7 +211,8 @@ socket.on('clear', () => {
 });
 
 socket.on('cursor', (data) => {
-  cursors[data.id] = { x: data.x, y: data.y, color: data.color };
+  const p = toLocalCoords(data);
+  cursors[data.id] = { x: p.x, y: p.y, color: data.color };
   drawCursors();
 });
 socket.on('removeCursor', (id) => {
