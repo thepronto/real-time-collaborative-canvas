@@ -1,76 +1,93 @@
-const canvas = document.getElementById('canvas1');
-const ctx = canvas.getContext('2d');
+/* canvas.js - fixed & integrated for strokeHistory server */
 
-const cursorCanvas = document.createElement('canvas');//for cursors
-const cursorCtx = cursorCanvas.getContext('2d');
-
-canvas.parentElement.appendChild(cursorCanvas);
+/* ====== SOCKET & STAGE ====== */
+const socket = io();
+const stage = document.getElementById('stage');
 const cursors = {};
 
+/* ====== CANVAS LAYERS ====== */
+let masterCanvas, masterCtx;
+let localCanvas, localCtx;
+let cursorCanvas, cursorCtx;
 
+/* create canvas element inside #stage */
+function createCanvas(z, editable = false) {
+  const c = document.createElement('canvas');
+  const rect = stage.getBoundingClientRect();
+  c.width = rect.width;
+  c.height = rect.height;
+  c.style.position = 'absolute';
+  c.style.top = '0';
+  c.style.left = '0';
+  c.style.zIndex = z;
+  c.style.pointerEvents = editable ? 'auto' : 'none';
+  c.style.width = '100%';
+  c.style.height = '100%';
+  stage.appendChild(c);
+  return c;
+}
+
+/* init layers */
+function setupLayers() {
+  masterCanvas = createCanvas(1, false);
+  masterCtx = masterCanvas.getContext('2d');
+
+  cursorCanvas = createCanvas(2, false);
+  cursorCtx = cursorCanvas.getContext('2d');
+
+  localCanvas = createCanvas(3, true);
+  localCtx = localCanvas.getContext('2d');
+  localCtx.lineCap = 'round';
+  localCtx.lineJoin = 'round';
+}
+
+/* run setup */
+setupLayers();
+
+/* ====== GLOBAL STATE ====== */
 let drawing = false;
 let tool = 'brush';
-let currentColor = 'black';
+let color = 'black';
 let lastPenColor = 'black';
 let lineWidth = 6;
-let rect;
+let currentStroke = null;
+let latestStrokes = []; // holds latest master strokes from server
 
-
-const socket = io();
-
-// Resize Canvas
-function resizeCanvas() {
-  // Save current visible drawing before resizing
-  const tempImage = canvas.toDataURL('image/png');
-
-  // Compute new DPR-aware dimensions
-  rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const pixelWidth = Math.round(rect.width * dpr);
-  const pixelHeight = Math.round(rect.height * dpr);
-
-  // Resize both canvases
-  [canvas, cursorCanvas].forEach((c, i) => {
-    c.style.width = rect.width + 'px';
-    c.style.height = rect.height + 'px';
-    c.width = pixelWidth;
-    c.height = pixelHeight;
-
-    const context = i === 0 ? ctx : cursorCtx;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  });
-
-  // Redraw saved content (only if there was something)
-  const img = new Image();
-  img.onload = () => {
-    // Reset transform temporarily to avoid double scaling
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    // Reapply DPR transform for future drawing
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  };
-  img.src = tempImage;
-}
-
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-function saveSnapshotAndEmit() {
-  // Temporarily reset transform so toDataURL() captures the actual canvas content
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const image = canvas.toDataURL('image/png');
-
-  // Reapply the correct DPR scaling (so future drawing works as before)
+/* ====== DPI + RESIZE ====== */
+function applyDPR(ctx) {
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  socket.emit('snapshot', { image });
 }
 
+/* resize all canvases, keep DPR and re-render master */
+function resizeAllCanvases() {
+  const rect = stage.getBoundingClientRect();
+  const width = rect.width;
+  const height = rect.height;
 
+  [masterCanvas, localCanvas, cursorCanvas].forEach((c) => {
+    c.width = width;
+    c.height = height;
+    c.style.width = width + 'px';
+    c.style.height = height + 'px';
+  });
+
+  // No DPR transforms — everything 1:1 with CSS
+  masterCtx.setTransform(1, 0, 0, 1, 0, 0);
+  localCtx.setTransform(1, 0, 0, 1, 0, 0);
+  cursorCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+  renderMaster(latestStrokes);
+  drawCursors();
+}
+
+/* call once initially to size canvases correctly */
+resizeAllCanvases();
+window.addEventListener('resize', resizeAllCanvases);
+
+/* ====== Normalized Coordinate Helpers (use localCanvas as reference) ====== */
 function getNormalizedPos(e) {
-  const rect = canvas.getBoundingClientRect();
+  const rect = localCanvas.getBoundingClientRect();
   return {
     x: (e.clientX - rect.left) / rect.width,
     y: (e.clientY - rect.top) / rect.height,
@@ -78,83 +95,193 @@ function getNormalizedPos(e) {
 }
 
 function toLocalCoords(norm) {
-  const rect = canvas.getBoundingClientRect();
+  const rect = localCanvas.getBoundingClientRect();
   return {
     x: norm.x * rect.width,
     y: norm.y * rect.height,
   };
 }
-canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
-canvas.addEventListener('pointerdown', (e) => {
+/* ====== Drawing helper — assumes stroke.points are normalized (0..1) ====== */
+function drawStroke(ctx, stroke) {
+  const pts = stroke.points;
+  if (!pts || pts.length < 2) return;
+  const p0 = toLocalCoords(pts[0]);
+  ctx.beginPath();
+  ctx.strokeStyle = stroke.color;
+  ctx.lineWidth = stroke.width;
+  ctx.moveTo(p0.x, p0.y);
+  for (let i = 1; i < pts.length; i++) {
+    const p = toLocalCoords(pts[i]);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.closePath();
+}
+
+/* ====== Touch prevention on stage (prevents scrolling when drawing on mobile) ====== */
+stage.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+
+/* ====== LOCAL POINTER EVENTS (normalized coords) ====== */
+localCanvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   drawing = true;
   const norm = getNormalizedPos(e);
-  const p = toLocalCoords(norm);
-  ctx.beginPath();
-  ctx.moveTo(p.x, p.y);
 
-  socket.emit('draw', {
+  currentStroke = {
+    color,
+    width: lineWidth,
+    points: [norm]
+  };
+
+  const p = toLocalCoords(norm);
+  localCtx.beginPath();
+  localCtx.moveTo(p.x, p.y);
+
+  socket.emit('stroke:partial', {
     type: 'begin',
-    ...norm,
-    color: currentColor,
-    width: lineWidth
+    color,
+    width: lineWidth,
+    points: [norm]
   });
 });
 
-canvas.addEventListener('pointermove', (e) => {
+localCanvas.addEventListener('pointermove', (e) => {
   e.preventDefault();
+
+  // always emit cursor normalized
   const norm = getNormalizedPos(e);
   socket.emit('cursor', norm);
+
   if (!drawing) return;
 
+  // append normalized point
+  currentStroke.points.push(norm);
+
+  // draw locally (pixel coords)
   const p = toLocalCoords(norm);
-  drawLine(p.x, p.y, currentColor, lineWidth);
-  socket.emit('draw', {
+  localCtx.lineWidth = lineWidth;
+  localCtx.strokeStyle = color;
+  localCtx.lineTo(p.x, p.y);
+  localCtx.stroke();
+
+  // send partial update (only this recent normalized point)
+  socket.emit('stroke:partial', {
     type: 'draw',
-    ...norm,
-    color: currentColor,
-    width: lineWidth
+    color,
+    width: lineWidth,
+    points: [norm]
   });
 });
-
-function drawLine(x,y,color,width){
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  ctx.lineCap = "round"; // for smoothly joining points, instead of ragged/choppy lines and dots
-  ctx.lineJoin = "round";
-
-  ctx.lineTo(x,y);
-  ctx.stroke();
-}
 
 window.addEventListener('pointerup', () => {
   if (!drawing) return;
   drawing = false;
-  ctx.closePath();
-  socket.emit('draw', { type: 'end' });
-  saveSnapshotAndEmit(); // send to server
+  localCtx.closePath();
+
+  // final stroke (normalized points)
+  socket.emit('stroke:end', currentStroke);
+  currentStroke = null;
 });
 
-// Color Buttons
+/* ====== SOCKET HANDLERS ====== */
+
+/* init: server sends current users + full strokes list */
+socket.on('init', ({ users, strokes }) => {
+  latestStrokes = strokes || [];
+  renderMaster(latestStrokes);
+  updateUserList(users);
+});
+
+/* users list update */
+socket.on('users', (users) => updateUserList(users));
+
+/* real-time partials from other users */
+socket.on('stroke:partial', ({ userId, stroke }) => {
+  // ignore our own partials
+  if (userId === socket.id) return;
+
+  const { color: c, width: w, points, type } = stroke;
+  masterCtx.strokeStyle = c;
+  masterCtx.lineWidth = w;
+
+  if (type === 'begin') {
+    const start = toLocalCoords(points[0]);
+    masterCtx.beginPath();
+    masterCtx.moveTo(start.x, start.y);
+  } else if (type === 'draw') {
+    const p = toLocalCoords(points[0]);
+    masterCtx.lineTo(p.x, p.y);
+    masterCtx.stroke();
+  }
+});
+
+/* server sends the full updated stroke array — redraw master and clear live layers */
+socket.on('master:updateAll', (strokes) => {
+  latestStrokes = strokes || [];
+  renderMaster(latestStrokes);
+
+  // clear local live drawing so it doesn't duplicate
+  localCtx.clearRect(0, 0, localCanvas.width, localCanvas.height);
+
+  // clear any temporary per-user layers if you implement them later
+});
+
+/* cursor events */
+socket.on('cursor', (data) => {
+  const p = toLocalCoords(data);
+  cursors[data.id] = { x: p.x, y: p.y, color: data.color };
+  drawCursors();
+});
+
+socket.on('removeCursor', (id) => {
+  delete cursors[id];
+  drawCursors();
+});
+
+/* when a user disconnects update users list */
+socket.on('userDisconnected', (id) => {
+  delete cursors[id];
+  drawCursors();
+});
+
+/* ====== RENDER HELPERS ====== */
+function renderMaster(strokes) {
+  masterCtx.clearRect(0, 0, masterCanvas.width, masterCanvas.height);
+  (strokes || []).forEach((s) => drawStroke(masterCtx, s));
+}
+
+function drawCursors() {
+  cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+  for (const id in cursors) {
+    const { x, y, color: c } = cursors[id];
+    cursorCtx.beginPath();
+    cursorCtx.arc(x, y, 5, 0, Math.PI * 2);
+    cursorCtx.fillStyle = c;
+    cursorCtx.fill();
+    cursorCtx.lineWidth = 1.5;
+    cursorCtx.strokeStyle = 'white';
+    cursorCtx.stroke();
+  }
+}
+
+/* ====== CONTROLS & TOOLS (kept behavior) ====== */
 const colorButtons = document.querySelectorAll('.color-btn');
 colorButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     colorButtons.forEach((b) => b.classList.remove('selected'));
     btn.classList.add('selected');
     if (tool === 'eraser') switchToBrush();
-    currentColor = btn.dataset.color;
-    lastPenColor = currentColor;
+    color = btn.dataset.color;
+    lastPenColor = color;
   });
 });
 
-// Color Picker
-const colorPicker = document.getElementById('colorPicker');
-colorPicker.addEventListener('input', (e) => {
+document.getElementById('colorPicker').addEventListener('input', (e) => {
   colorButtons.forEach((b) => b.classList.remove('selected'));
   if (tool === 'eraser') switchToBrush();
-  currentColor = e.target.value;
-  lastPenColor = currentColor;
+  color = e.target.value;
+  lastPenColor = color;
 });
 
 const brushBtn = document.getElementById('tool-brush');
@@ -164,95 +291,30 @@ function switchToBrush() {
   tool = 'brush';
   brushBtn.classList.add('active');
   eraserBtn.classList.remove('active');
-  currentColor = lastPenColor;
+  color = lastPenColor;
 }
 
 function switchToEraser() {
   tool = 'eraser';
   eraserBtn.classList.add('active');
   brushBtn.classList.remove('active');
-  currentColor = 'white';
+  color = 'white';
 }
 
 brushBtn.onclick = switchToBrush;
 eraserBtn.onclick = switchToEraser;
 
-// Size Slider
 document.getElementById('sizeRange').addEventListener('input', (e) => {
   lineWidth = Number(e.target.value);
 });
 
+document.getElementById('clearBtn').onclick = () => socket.emit('clear');
+document.getElementById('undoBtn').onclick = () => socket.emit('undo');
+document.getElementById('redoBtn').onclick = () => socket.emit('redo');
 
-document.getElementById('clearBtn').onclick = () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  socket.emit('clear');
-  saveSnapshotAndEmit();
-};
-
-document.getElementById('undoBtn').onclick = () => {
-  socket.emit('undo');
-};
-
-document.getElementById('redoBtn').onclick = () => {
-  socket.emit('redo');
-};
-
-socket.on('draw', (data) => {
-  const p = toLocalCoords(data);
-  if (data.type === 'begin') {
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-  } else if (data.type === 'draw') {
-    drawLine(p.x, p.y, data.color, data.width);
-  } else if (data.type === 'end') {
-    ctx.closePath();
-  }
-});
-
-socket.on('clear', () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-});
-
-socket.on('cursor', (data) => {
-  const p = toLocalCoords(data);
-  cursors[data.id] = { x: p.x, y: p.y, color: data.color };
-  drawCursors();
-});
-socket.on('removeCursor', (id) => {
-  delete cursors[id];
-  drawCursors();
-});
-function drawCursors() {
-  cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-  for (const id in cursors) {
-    const { x, y, color } = cursors[id];
-    cursorCtx.beginPath();
-    cursorCtx.arc(x, y, 5, 0, Math.PI * 2);
-    cursorCtx.fillStyle = color;
-    cursorCtx.fill();
-    cursorCtx.lineWidth = 1.5;
-    cursorCtx.strokeStyle = 'white';
-    cursorCtx.stroke();
-  }
-}
-socket.on('snapshot', (data) => {
-  const img = new Image();
-  img.onload = () => {
-    // Reset transform temporarily to draw 1:1
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    // Reapply the DPR scaling for future strokes
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  };
-  img.src = data.image;
-});
-
+/* ====== USER LIST ====== */
 const usersList = document.getElementById('usersList');
-
-socket.on('users', (users) => {
+function updateUserList(users) {
   usersList.innerHTML = Object.entries(users)
     .map(([id, color]) => `
       <li>
@@ -261,8 +323,9 @@ socket.on('users', (users) => {
       </li>
     `)
     .join('');
-});
+}
 
+/* ====== STATS (FPS / PING) ====== */
 const fpsE = document.getElementById('fpsStat');
 const pingE = document.getElementById('pingStat');
 
@@ -271,15 +334,13 @@ let frames = 0;
 let fps = 0;
 
 function trackFPS() {
-  fps++;
+  frames++;
   const now = performance.now();
-
   if (now - lastFrame >= 1000) {
-    fpsE.textContent = `FPS: ${fps}`;
-    fps = 0;
+    fpsE.textContent = `FPS: ${frames}`;
+    frames = 0;
     lastFrame = now;
   }
-
   requestAnimationFrame(trackFPS);
 }
 trackFPS();

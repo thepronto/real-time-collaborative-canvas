@@ -1,3 +1,4 @@
 /node_modules
 /server/node_modules
-server/latest_snapshot.txt
+/server/latest_snapshot.txt
+/server/strokes.json

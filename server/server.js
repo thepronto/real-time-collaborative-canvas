@@ -1,72 +1,50 @@
 const path = require('path');
+const express = require('express');
+const http = require('http');
 const fs = require('fs');
-let express = require('express')
-let app = express()
-let httpServer = require('http').createServer(app)
-let io = require('socket.io')(httpServer)
+const { Server } = require('socket.io');
 
-let PORT = process.env.PORT || 5050 //for heroku deployment
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-let users = {};
-let history = []; 
-let index = -1;
-const SNAPSHOT_PATH = path.join(__dirname, 'latest_snapshot.txt');
+const PORT = process.env.PORT || 5050;
 
-if (fs.existsSync(SNAPSHOT_PATH)) {
+// --- Data Storage ---
+let users = {};                // { socket.id: color }
+let strokeHistory = [];        // array of stroke objects {userId, color, width, points:[]}
+let redoStack = [];            // for global redo
+
+// Optional persistence path (for future)
+const STROKE_PATH = path.join(__dirname, 'strokes.json');
+
+// If you want to restore previous drawing:
+if (fs.existsSync(STROKE_PATH)) {
   try {
-    const saved = fs.readFileSync(SNAPSHOT_PATH, 'utf8');
-    history = [saved];
-    index = 0;
-    console.log('Restored saved drawing snapshot.');
+    const saved = JSON.parse(fs.readFileSync(STROKE_PATH, 'utf8'));
+    strokeHistory = saved;
+    console.log(`🟢 Restored ${strokeHistory.length} saved strokes.`);
   } catch (err) {
-    console.error('Failed to load snapshot:', err);
+    console.error('Failed to load saved strokes:', err);
   }
 } else {
-  console.log(' No previous snapshot found, starting fresh.');
+  console.log('🟡 No saved stroke history found. Starting fresh.');
 }
 
-io.on('connect', (socket) =>{
+// ================= SOCKET HANDLING ==================
+io.on('connection', (socket) => {
+  // Assign a random color for this user
   const color = `hsl(${Math.random() * 360}, 80%, 60%)`;
   users[socket.id] = color;
-  console.log(`${socket.id} connected (${color})`);
+  console.log(`🟢 ${socket.id} connected (${color})`);
 
+  // Notify everyone about the new user list
   io.emit('users', users);
 
-  if (index >= 0) {
-    socket.emit('snapshot', { image: history[index] });
-  }
+  // Send initial state (all strokes) to this user
+  socket.emit('init', { users, strokes: strokeHistory });
 
-  socket.on('draw', (data) => {
-    socket.broadcast.emit('draw', data);
-  });
-
-  socket.on('snapshot', (data) => {
-    history = history.slice(0, index + 1);
-    history.push(data.image);
-    index = history.length - 1;
-    io.emit('snapshot', { image: data.image });
-  });
-
-  // global undo
-  socket.on('undo', () => {
-    if (index > 0) {
-      index--;
-      io.emit('snapshot', { image: history[index] });
-    }
-  });
-
-  // global redo
-  socket.on('redo', () => {
-    if (index < history.length - 1) {
-      index++;
-      io.emit('snapshot', { image: history[index] });
-    }
-  });
-
-  socket.on('clear', () => {
-    socket.broadcast.emit('clear');
-  });
-
+  // --- Cursor Tracking ---
   socket.on('cursor', (pos) => {
     socket.broadcast.emit('cursor', {
       id: socket.id,
@@ -75,33 +53,82 @@ io.on('connect', (socket) =>{
       color: users[socket.id],
     });
   });
-  
-  socket.on('disconnect', (reason)=>{
-    console.log(`${socket.id} disconnected`);
+
+  // --- Live partial stroke updates (for smooth real-time) ---
+  socket.on('stroke:partial', (data) => {
+    socket.broadcast.emit('stroke:partial', {
+      userId: socket.id,
+      stroke: data
+    });
+  });
+
+  // --- Finalized stroke (end of drawing) ---
+  socket.on('stroke:end', (data) => {
+    const stroke = {
+      userId: socket.id,
+      color: data.color,
+      width: data.width,
+      points: data.points
+    };
+
+    strokeHistory.push(stroke);
+    redoStack = []; // clear redo on new stroke
+
+    // Broadcast full updated stroke history to all clients
+    io.emit('master:updateAll', strokeHistory);
+  });
+
+  // --- Global UNDO ---
+  socket.on('undo', () => {
+    if (strokeHistory.length > 0) {
+      const undone = strokeHistory.pop();
+      redoStack.push(undone);
+      io.emit('master:updateAll', strokeHistory);
+    }
+  });
+
+  // --- Global REDO ---
+  socket.on('redo', () => {
+    if (redoStack.length > 0) {
+      const redone = redoStack.pop();
+      strokeHistory.push(redone);
+      io.emit('master:updateAll', strokeHistory);
+    }
+  });
+
+  // --- Global CLEAR ---
+  socket.on('clear', () => {
+    strokeHistory = [];
+    redoStack = [];
+    io.emit('master:updateAll', strokeHistory);
+  });
+
+  // --- Ping test (keep alive check) ---
+  socket.on('pingCheck', () => socket.emit('pongCheck'));
+
+  // --- On disconnect ---
+  socket.on('disconnect', () => {
+    console.log(`🔴 ${socket.id} disconnected`);
     delete users[socket.id];
     io.emit('users', users);
     io.emit('removeCursor', socket.id);
 
-    if (Object.keys(users).length === 0 && index >= 0) {
+    // Optional: Save to disk when last user leaves
+    if (Object.keys(users).length === 0 && strokeHistory.length > 0) {
       try {
-        fs.writeFileSync(SNAPSHOT_PATH, history[index], 'utf8');
-        console.log(' Saved drawing snapshot (on last user disconnect).');
+        fs.writeFileSync(STROKE_PATH, JSON.stringify(strokeHistory, null, 2), 'utf8');
+        console.log('💾 Saved strokes to file (on last disconnect).');
       } catch (err) {
-        console.error(' Failed to save snapshot:', err);
+        console.error('❌ Failed to save strokes:', err);
       }
     }
   });
+});
 
-
-  socket.on('pingCheck', () => socket.emit('pongCheck'));
-
-
-})
-
-const clientPath = path.join(__dirname, '..' , 'client');
+// ================= EXPRESS SETUP ==================
+const clientPath = path.join(__dirname, '..', 'client');
 app.use(express.static(clientPath));
 
-httpServer.listen(PORT, ()=>{
-  console.log(`Server Started on port ${PORT}`);
-  
-})
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
