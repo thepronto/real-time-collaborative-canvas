@@ -142,3 +142,49 @@ html, body, #app {
 #cursorCanvas {
   pointer-events: none;
 }
+button, input[type="range"] {
+  cursor: pointer;
+}
+
+.users-panel {
+  width: 100%;
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid grey;
+}
+
+.users-panel h3 {
+  font-size: 14px;
+  margin: 5px 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#usersList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#usersList li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: white;
+  justify-content: flex-start;
+}
+
+.user-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.stats-panel {
+  margin-top: 10px;
+  padding: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: white;
+  border-top: 1px solid grey;
+}

@@ -60,7 +60,7 @@ function saveSnapshotAndEmit() {
   // Temporarily reset transform so toDataURL() captures the actual canvas content
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const image = canvas.toDataURL('image/png');
-  
+
   // Reapply the correct DPR scaling (so future drawing works as before)
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -110,7 +110,7 @@ function drawLine(x,y,color,width){
   ctx.strokeStyle = color;
   ctx.lineCap = "round"; // for smoothly joining points, instead of ragged/choppy lines and dots
   ctx.lineJoin = "round";
-  
+
   ctx.lineTo(x,y);
   ctx.stroke();
 }
@@ -233,4 +233,49 @@ socket.on('snapshot', (data) => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   img.src = data.image;
+});
+
+const usersList = document.getElementById('usersList');
+
+socket.on('users', (users) => {
+  usersList.innerHTML = Object.entries(users)
+    .map(([id, color]) => `
+      <li>
+        <span class="user-dot" style="background:${color}"></span>
+        User ${id.slice(0, 5)}
+      </li>
+    `)
+    .join('');
+});
+
+const fpsE = document.getElementById('fpsStat');
+const pingE = document.getElementById('pingStat');
+
+let lastFrame = performance.now();
+let frames = 0;
+let fps = 0;
+
+function trackFPS() {
+  fps++;
+  const now = performance.now();
+
+  if (now - lastFrame >= 1000) {
+    fpsE.textContent = `FPS: ${fps}`;
+    fps = 0;
+    lastFrame = now;
+  }
+
+  requestAnimationFrame(trackFPS);
+}
+trackFPS();
+
+let lastPing = 0;
+setInterval(() => {
+  lastPing = Date.now();
+  socket.emit('pingCheck');
+}, 2000);
+
+socket.on('pongCheck', () => {
+  const latency = Date.now() - lastPing;
+  pingE.textContent = `Ping: ${latency} ms`;
 });

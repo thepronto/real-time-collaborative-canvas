@@ -6,13 +6,16 @@ let io = require('socket.io')(httpServer)
 
 let PORT = process.env.PORT || 5050 //for heroku deployment
 
-let connections = [];
+let users = {};
 let history = []; 
 let index = -1;
 
 io.on('connect', (socket) =>{
-  connections.push(socket);
-  console.log(`${socket.id} has connected`);
+  const color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+  users[socket.id] = color;
+  console.log(`${socket.id} connected (${color})`);
+
+  io.emit('users', users);
 
   if (index >= 0) {
     socket.emit('snapshot', { image: history[index] });
@@ -50,22 +53,23 @@ io.on('connect', (socket) =>{
     socket.broadcast.emit('clear');
   });
 
-  const userColor = `hsl(${Math.random() * 360}, 80%, 60%)`;
   socket.on('cursor', (pos) => {
     socket.broadcast.emit('cursor', {
       id: socket.id,
       x: pos.x,
       y: pos.y,
-      color: userColor,
+      color: users[socket.id],
     });
   });
   
   
   socket.on('disconnect', (reason)=>{
-    console.log(`${socket.id} has disconnected`)
-    connections = connections.filter((connection) => connection.id !==socket.id);
-    socket.broadcast.emit('removeCursor', socket.id);
+    console.log(`${socket.id} disconnected`);
+    delete users[socket.id];
+    io.emit('users', users);
+    io.emit('removeCursor', socket.id);
   });
+  socket.on('pingCheck', () => socket.emit('pongCheck'));
 })
 
 
